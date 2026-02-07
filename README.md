@@ -1,5 +1,7 @@
 # NanoNanoChat: Training GPT-2 from Scratch on a Single A100 GPU
 
+⚠️ **EXPERIMENTAL PROJECT** - This is an experimental implementation based on Karpathy's nanoChat. It is **not intended for real-world use** and should be treated as a research/exploration project only.
+
 This project implements a full GPT-2 model in PyTorch and provides a way to train it on a single A100 80GB GPU.
 
 ## Colab Notebook
