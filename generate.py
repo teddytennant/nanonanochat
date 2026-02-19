@@ -1,6 +1,6 @@
 import torch
 from model import GPT, GPTConfig
-from data import get_data
+from transformers import GPT2Tokenizer
 import argparse
 
 def generate_text(model, tokenizer, prompt, max_new_tokens=50, temperature=1.0, top_k=50, top_p=None, do_sample=True):
@@ -24,6 +24,8 @@ def main():
     parser.add_argument('--do_sample', action='store_true', default=True)
     args = parser.parse_args()
 
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
     # Config (same as training)
     config = GPTConfig(vocab_size=50257, block_size=1024, n_layer=12, n_head=12, n_embd=768, dropout=0.1)
     model = GPT(config)
@@ -33,8 +35,7 @@ def main():
         raise RuntimeError(f"Failed to load checkpoint {args.checkpoint}: {e}")
     model.to(device)
 
-    # Tokenizer
-    _, _, tokenizer = get_data()
+    tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
 
     # Generate
     generated = generate_text(model, tokenizer, args.prompt, args.max_new_tokens, args.temperature, args.top_k, args.top_p, args.do_sample)

@@ -19,7 +19,7 @@ except ImportError:
     logger.warning("WandB not available, skipping logging")
 
 def train(model, train_loader, val_loader, optimizer, scheduler, device, epochs=1, grad_accum_steps=1, use_amp=True, patience=5):
-    scaler = torch.cuda.amp.GradScaler() if use_amp else None
+    scaler = torch.amp.GradScaler('cuda') if use_amp else None
     model.train()
     best_val_loss = float('inf')
     early_stop_counter = 0
@@ -31,7 +31,7 @@ def train(model, train_loader, val_loader, optimizer, scheduler, device, epochs=
             targets[:, :-1] = input_ids[:, 1:]
             targets[:, -1] = -1  # ignore last token
 
-            with torch.cuda.amp.autocast(enabled=use_amp):
+            with torch.amp.autocast('cuda', enabled=use_amp):
                 logits, loss = model(input_ids, targets)
                 loss = loss / grad_accum_steps
 
