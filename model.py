@@ -136,8 +136,13 @@ class GPT(nn.Module):
             if top_p is not None:
                 sorted_probs, sorted_indices = torch.sort(probs, descending=True, dim=-1)
                 cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
-                sorted_probs[cumulative_probs > top_p] = 0
+                # Keep tokens where cumulative prob hasn't exceeded top_p yet
+                # Shift right so the first token exceeding the threshold is kept
+                sorted_mask = cumulative_probs - sorted_probs >= top_p
+                sorted_probs[sorted_mask] = 0
                 probs = torch.zeros_like(probs).scatter_(-1, sorted_indices, sorted_probs)
+                # Renormalize to ensure valid probability distribution
+                probs = probs / probs.sum(dim=-1, keepdim=True)
             if do_sample:
                 idx_next = torch.multinomial(probs, num_samples=1)
             else:
