@@ -22,17 +22,49 @@ def main():
     parser.add_argument('--top_k', type=int, default=50)
     parser.add_argument('--top_p', type=float, default=None)
     parser.add_argument('--do_sample', action='store_true', default=True)
+    # Fallback config args for old-format checkpoints (state_dict only)
+    parser.add_argument('--n_layer', type=int, default=12)
+    parser.add_argument('--n_head', type=int, default=12)
+    parser.add_argument('--n_embd', type=int, default=768)
+    parser.add_argument('--block_size', type=int, default=1024)
+    parser.add_argument('--dropout', type=float, default=0.1)
     args = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    # Config (same as training)
-    config = GPTConfig(vocab_size=50257, block_size=1024, n_layer=12, n_head=12, n_embd=768, dropout=0.1)
-    model = GPT(config)
+    # Load checkpoint
     try:
-        model.load_state_dict(torch.load(args.checkpoint, map_location=device))
+        checkpoint = torch.load(args.checkpoint, map_location=device, weights_only=False)
     except Exception as e:
         raise RuntimeError(f"Failed to load checkpoint {args.checkpoint}: {e}")
+
+    # Extract config and state_dict from checkpoint
+    if isinstance(checkpoint, dict) and 'config' in checkpoint:
+        # New format: checkpoint contains config and model_state_dict
+        cfg = checkpoint['config']
+        config = GPTConfig(
+            vocab_size=cfg['vocab_size'],
+            block_size=cfg['block_size'],
+            n_layer=cfg['n_layer'],
+            n_head=cfg['n_head'],
+            n_embd=cfg['n_embd'],
+            dropout=cfg.get('dropout', 0.1),
+        )
+        state_dict = checkpoint['model_state_dict']
+    else:
+        # Old format: checkpoint is a raw state_dict
+        config = GPTConfig(
+            vocab_size=50257,
+            block_size=args.block_size,
+            n_layer=args.n_layer,
+            n_head=args.n_head,
+            n_embd=args.n_embd,
+            dropout=args.dropout,
+        )
+        state_dict = checkpoint
+
+    model = GPT(config)
+    model.load_state_dict(state_dict)
     model.to(device)
 
     tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
