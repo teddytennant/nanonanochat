@@ -34,7 +34,7 @@ def main():
 
     # Load checkpoint
     try:
-        checkpoint = torch.load(args.checkpoint, map_location=device, weights_only=False)
+        checkpoint = torch.load(args.checkpoint, map_location=device, weights_only=True)
     except Exception as e:
         raise RuntimeError(f"Failed to load checkpoint {args.checkpoint}: {e}")
 
