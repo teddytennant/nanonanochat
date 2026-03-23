@@ -17,12 +17,13 @@ except ImportError:
     WANDB_AVAILABLE = False
     logger.warning("WandB not available, skipping logging")
 
-def train(model, train_loader, val_loader, optimizer, scheduler, device, epochs=1, grad_accum_steps=1, use_amp=True, patience=5):
+def train(model, train_loader, val_loader, optimizer, scheduler, device, epochs=1, grad_accum_steps=1, use_amp=True, patience=5, start_epoch=0, best_val_loss=None):
     scaler = torch.amp.GradScaler('cuda') if use_amp else None
     model.train()
-    best_val_loss = float('inf')
+    if best_val_loss is None:
+        best_val_loss = float('inf')
     early_stop_counter = 0
-    for epoch in range(epochs):
+    for epoch in range(start_epoch, epochs):
         total_loss = 0
         for i, batch in enumerate(tqdm(train_loader)):
             input_ids = batch.to(device)
@@ -118,6 +119,7 @@ def main():
     parser.add_argument('--lr', type=float, default=3e-4)
     parser.add_argument('--use_amp', action='store_true', default=True)
     parser.add_argument('--patience', type=int, default=5)
+    parser.add_argument('--resume', type=str, default=None, help='Path to checkpoint to resume training from')
     args = parser.parse_args()
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -126,19 +128,54 @@ def main():
     if WANDB_AVAILABLE:
         wandb.init(project="nanonanochat", config=vars(args))
 
-    # Config
-    config = GPTConfig(vocab_size=50257, block_size=args.block_size, n_layer=args.n_layer, n_head=args.n_head, n_embd=args.n_embd, dropout=args.dropout)
-    model = GPT(config).to(device)
+    start_epoch = 0
+    best_val_loss = None
 
-    # Data
-    train_loader, val_loader, tokenizer = get_data(batch_size=args.batch_size, block_size=args.block_size)
+    if args.resume:
+        logger.info(f"Resuming from checkpoint: {args.resume}")
+        checkpoint = torch.load(args.resume, map_location=device, weights_only=True)
+        cfg = checkpoint['config']
+        config = GPTConfig(
+            vocab_size=cfg['vocab_size'],
+            block_size=cfg['block_size'],
+            n_layer=cfg['n_layer'],
+            n_head=cfg['n_head'],
+            n_embd=cfg['n_embd'],
+            dropout=cfg.get('dropout', 0.1),
+        )
+        model = GPT(config).to(device)
+        model.load_state_dict(checkpoint['model_state_dict'])
 
-    # Optimizer and scheduler
-    optimizer = AdamW(model.parameters(), lr=args.lr)
-    scheduler = CosineAnnealingLR(optimizer, T_max=len(train_loader) * args.epochs // args.grad_accum_steps)
+        # Data
+        train_loader, val_loader, tokenizer = get_data(batch_size=args.batch_size, block_size=config.block_size)
+
+        # Optimizer and scheduler
+        optimizer = AdamW(model.parameters(), lr=args.lr)
+        scheduler = CosineAnnealingLR(optimizer, T_max=len(train_loader) * args.epochs // args.grad_accum_steps)
+
+        # Restore optimizer and scheduler state
+        if 'optimizer_state_dict' in checkpoint:
+            optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        if 'scheduler_state_dict' in checkpoint:
+            scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+
+        start_epoch = checkpoint.get('epoch', 0)
+        best_val_loss = checkpoint.get('val_loss', None)
+        logger.info(f"Resumed from epoch {start_epoch}, val_loss={best_val_loss}")
+    else:
+        # Config
+        config = GPTConfig(vocab_size=50257, block_size=args.block_size, n_layer=args.n_layer, n_head=args.n_head, n_embd=args.n_embd, dropout=args.dropout)
+        model = GPT(config).to(device)
+
+        # Data
+        train_loader, val_loader, tokenizer = get_data(batch_size=args.batch_size, block_size=args.block_size)
+
+        # Optimizer and scheduler
+        optimizer = AdamW(model.parameters(), lr=args.lr)
+        scheduler = CosineAnnealingLR(optimizer, T_max=len(train_loader) * args.epochs // args.grad_accum_steps)
 
     # Train
-    train(model, train_loader, val_loader, optimizer, scheduler, device, args.epochs, args.grad_accum_steps, args.use_amp, args.patience)
+    train(model, train_loader, val_loader, optimizer, scheduler, device, args.epochs, args.grad_accum_steps, args.use_amp, args.patience, start_epoch, best_val_loss)
 
 if __name__ == '__main__':
     main()
