@@ -1,5 +1,4 @@
 import torch
-import torch.nn as nn
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from model import GPT, GPTConfig
@@ -42,9 +41,12 @@ def train(model, train_loader, val_loader, optimizer, scheduler, device, epochs=
 
             if (i + 1) % grad_accum_steps == 0:
                 if use_amp:
+                    scaler.unscale_(optimizer)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                     scaler.step(optimizer)
                     scaler.update()
                 else:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                     optimizer.step()
                 optimizer.zero_grad()
                 scheduler.step()
@@ -73,9 +75,25 @@ def train(model, train_loader, val_loader, optimizer, scheduler, device, epochs=
             wandb.log({'epoch': epoch+1, 'train_loss': avg_loss, 'val_loss': avg_val_loss})
 
         # Check for best model
+        checkpoint = {
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'scheduler_state_dict': scheduler.state_dict(),
+            'config': {
+                'vocab_size': model.config.vocab_size,
+                'block_size': model.config.block_size,
+                'n_layer': model.config.n_layer,
+                'n_head': model.config.n_head,
+                'n_embd': model.config.n_embd,
+                'dropout': model.config.dropout,
+            },
+            'epoch': epoch + 1,
+            'train_loss': avg_loss,
+            'val_loss': avg_val_loss,
+        }
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
-            torch.save(model.state_dict(), 'best_model.pt')
+            torch.save(checkpoint, 'best_model.pt')
             early_stop_counter = 0
             logger.info("Saved best model")
         else:
@@ -85,7 +103,7 @@ def train(model, train_loader, val_loader, optimizer, scheduler, device, epochs=
                 break
 
         # Save checkpoint
-        torch.save(model.state_dict(), f'checkpoint_epoch_{epoch+1}.pt')
+        torch.save(checkpoint, f'checkpoint_epoch_{epoch+1}.pt')
 
 def main():
     parser = argparse.ArgumentParser()
